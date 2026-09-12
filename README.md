@@ -1,16 +1,15 @@
 # PayoutPath PK
 
-PayoutPath PK is being built to help Pakistani freelancers compare payout routes from messy, user-provided quote text. This repository is currently at the **setup milestone**: the application shell, API contracts, and architectural boundaries exist, but comparison does not work yet.
+PayoutPath PK is an evidence-first payout-route comparator for Pakistani
+freelancers. It accepts an invoice context and user-provided route quotes, uses one
+real AI API to normalize the messy text, verifies exact same-quote excerpts, and
+uses deterministic Python `Decimal` code to estimate net PKR.
 
-A real AI API is a mandatory product dependency. It will extract payment terms from unfamiliar pasted text in the next implementation phase. There is no demo extractor, keyword fallback, or fabricated comparison output in this milestone.
-
-## What works now
-
-- `GET /health` returns a live FastAPI health response.
-- `POST /api/compare` validates the planned request contract and then deliberately returns `501 Not Implemented`.
-- FastAPI publishes the planned comparison request and response schemas in `/docs` and `/openapi.json`.
-- The React/Vite frontend builds and presents an honest description of the planned inputs, outputs, and current status.
-- The application layer defines a provider-neutral `QuoteExtractor` protocol; provider SDK code is reserved for `adapters/ai/`.
+The backend comparison pipeline is implemented. The React application is still the
+setup screen and has not yet been connected to the comparison journey. A real AI
+call also requires a backend API key; there is no hardcoded parser, production
+fixture, or automatic fallback. Without valid AI configuration, comparison returns
+a safe retryable `503` while `GET /health` remains available.
 
 ## Repository layout
 
@@ -18,53 +17,106 @@ A real AI API is a mandatory product dependency. It will extract payment terms f
 .
 |-- backend/
 |   |-- app/
-|   |   |-- api/                  # HTTP routes and Pydantic transport schemas
-|   |   |-- application/          # Use cases and inbound/outbound ports
-|   |   |-- domain/               # Payment, fee, evidence, and ranking concepts
+|   |   |-- api/                  # HTTP validation and response mapping
+|   |   |-- application/          # Comparison orchestration and QuoteExtractor port
+|   |   |-- domain/               # Evidence, Decimal fee, and ranking rules
 |   |   |-- adapters/
-|   |   |   |-- ai/               # Future real AI QuoteExtractor implementation
-|   |   |   `-- official_sources/ # Future current-source catalog adapter
-|   |   |-- config.py             # Environment-backed configuration
-|   |   `-- main.py               # FastAPI construction and dependency wiring
-|   |-- tests/
+|   |   |   |-- ai/               # Real OpenAI structured-output adapter
+|   |   |   `-- official_sources/ # Reserved current-source catalog adapter
+|   |   |-- config.py             # Backend-only environment settings
+|   |   `-- main.py               # FastAPI composition root
+|   |-- tests/                    # Domain, adapter-boundary, use-case, and API tests
 |   |-- .env.example
 |   `-- pyproject.toml
+|-- docs/
+|   `-- CONTRACT.md               # Frozen frontend/backend JSON contract
 |-- frontend/
 |   |-- src/
-|   |   |-- api/                  # Backend HTTP client
-|   |   |-- components/           # Reusable presentation components
-|   |   |-- pages/                # Page composition
-|   |   `-- styles/               # Global and page styling
+|   |   |-- api/
+|   |   |-- components/
+|   |   |-- pages/
+|   |   `-- styles/
 |   |-- .env.example
 |   `-- package.json
-`-- web/                           # Pre-existing Vite scaffold, preserved unchanged
+`-- README.md
 ```
 
-The backend is one deployable modular monolith with ports and adapters. `domain/` contains provider-free business concepts. `application/` coordinates use cases and owns the `QuoteExtractor` port. `api/` translates HTTP data through Pydantic contracts. `adapters/` will contain integrations with the selected real AI provider and current official sources. `main.py` is the composition root; integrations are wired there rather than imported into the domain.
+The backend is one modular monolith. Provider SDK or HTTP behavior stays in
+`adapters/`; the application layer depends only on the `QuoteExtractor` protocol;
+the domain imports neither FastAPI nor provider code. `main.py` wires the concrete
+OpenAI adapter, Decimal fee engine, ranking policy, and comparison use case.
+
+## Backend behavior
+
+`POST /api/compare` performs this sequence:
+
+1. Pydantic validates invoice context and at least two distinct route quotes.
+2. The configured OpenAI Responses API adapter extracts typed terms from each
+   quote using strict JSON Schema output.
+3. The backend verifies every candidate excerpt verbatim against the same input
+   quote and recomputes its character offsets.
+4. Unsupported, contradictory, cross-quote, or invented evidence is refused.
+5. `DecimalFeeEngine` calculates only the supported subset and itemizes every fee.
+6. `RankingPolicy` compares only supported `ready` or `conditional` estimates.
+7. The response includes assumptions, missing facts, conditions, and the mandatory
+   verification notice.
+
+AI is load-bearing for extraction and normalization. It does not perform
+arithmetic, invent missing rates or fees, choose a winner, infer provider
+reputation, or decide regulatory obligations.
+
+### Supported calculation subset
+
+- Freelancer- or sender-paid fixed fees in the invoice currency.
+- Dimensionless percentage fees explicitly based on the original invoice amount;
+  the calculated fee is denominated in the invoice currency.
+- Other fees with explicit payer and invoice currency.
+- An explicit rate stated as PKR per one unit of invoice currency.
+- Explicit PKR receiving fees after conversion.
+- Evidence-backed eligibility conditions and display-only settlement wording.
+
+Every amount uses `Decimal`. Applied fees and final money use `ROUND_HALF_UP` to
+`0.01`:
+
+```text
+percentage fee = original invoice amount * percentage / 100
+convertible amount = invoice amount - supported freelancer-paid invoice fees
+estimated net PKR = convertible amount * quoted PKR rate
+                    - supported freelancer-paid PKR receiving fees
+```
+
+An unclear payer, missing currency/rate, remaining-balance percentage, intermediate
+currency, contradiction, invalid excerpt, or impossible negative result produces
+`estimated_net_pkr: null`. A sender-paid fee is displayed but not subtracted.
+
+Statuses are:
+
+- `ready`: required terms and explicit eligibility are supported.
+- `conditional`: a net is calculable but an evidenced condition remains.
+- `insufficient_evidence`: a safe net cannot be calculated.
+- `ineligible`: the quote explicitly excludes the supplied context.
+
+A winner is returned only when at least two routes have supported estimates. An
+exact tie, one supported route, or no supported routes returns no recommendation
+and explains why.
 
 ## API contract
 
-### Health
+The complete request, successful response, `422`, `503`, tie, and no-recommendation
+representations are documented in [`docs/CONTRACT.md`](docs/CONTRACT.md). FastAPI
+also publishes live schemas at `http://127.0.0.1:8000/docs`.
+
+Health response:
 
 ```http
 GET /health
 ```
 
 ```json
-{
-  "status": "ok",
-  "service": "payoutpath-pk-api"
-}
+{"status":"ok","service":"payoutpath-pk-api"}
 ```
 
-### Planned comparison
-
-```http
-POST /api/compare
-Content-Type: application/json
-```
-
-The request accepts an invoice amount and three-letter currency, client country, platform or payment context, and at least two independently identified pasted route quotes:
+Comparison request keys remain:
 
 ```json
 {
@@ -75,52 +127,48 @@ The request accepts an invoice amount and three-letter currency, client country,
   "route_quotes": [
     {
       "quote_id": "route-a",
-      "route_name": "Provider A",
-      "pasted_text": "Messy quote text supplied by the user..."
+      "route_name": "Route A",
+      "pasted_text": "A fictional user-provided route quote."
     },
     {
       "quote_id": "route-b",
-      "route_name": "Provider B",
-      "pasted_text": "A differently formatted quote supplied by the user..."
+      "route_name": "Route B",
+      "pasted_text": "A different fictional route quote."
     }
   ]
 }
 ```
 
-The planned successful response supports, for each route, a status, extracted terms tied to evidence excerpts, missing terms, itemized fees, an estimated net amount in PKR, and conditions. It also supports a conditional recommendation and a mandatory verification notice. The precise machine-readable schema is available through FastAPI's OpenAPI page at `http://127.0.0.1:8000/docs`.
-
-For now, every valid comparison request receives:
-
-```json
-{
-  "detail": "Comparison is not implemented in the setup milestone."
-}
-```
-
-with HTTP status `501`. Invalid requests can receive `422` before the handler, which confirms the future input contract is enforced.
-
-## Regulatory product rule
-
-Any tax or regulatory information shown by PayoutPath PK must tell users to verify it with a qualified professional and current official sources. The planned `CompareResponse.verification_notice` contract makes this notice mandatory and includes the exact statement:
-
-> Verify any tax or regulatory information with a qualified professional and current official sources.
-
-This setup contains no tax calculator and makes no claim about a repatriation threshold.
-
 ## Configuration
 
-Copy the example files without committing the resulting `.env` files:
+Copy the backend example and set a real application API credential:
 
 ```powershell
 Copy-Item backend/.env.example backend/.env
-Copy-Item frontend/.env.example frontend/.env
 ```
 
-`backend/.env.example` reserves `AI_PROVIDER`, `AI_MODEL`, and `AI_API_KEY` for the required real AI adapter. The backend must remain healthy when these are unset during this setup milestone; the later extraction use case will fail clearly if its required provider configuration is missing.
+```dotenv
+APP_ENV=development
+FRONTEND_ORIGINS=http://localhost:5173
+AI_PROVIDER=openai
+AI_MODEL=gpt-5.4-mini
+AI_API_KEY=your-server-side-key
+AI_TIMEOUT_SECONDS=30
+```
 
-During local development the frontend can call relative `/health` and `/api` paths through Vite's proxy. `VITE_API_PROXY_TARGET` selects the backend target. A deployed frontend can instead set `VITE_API_BASE_URL` to an absolute backend URL; allowed browser origins are configured with backend `FRONTEND_ORIGINS`.
+The key must stay in `backend/.env` or the deployment's server-side secret store.
+Never place it in a `VITE_` variable, commit it, or log it. The adapter sets
+`store: false`, uses a bounded timeout, validates structured output with Pydantic,
+and never logs quote bodies, prompts, or full provider responses. It uses the
+[OpenAI Responses API](https://developers.openai.com/api/reference/cli/resources/responses/methods/create)
+with strict JSON Schema output.
 
-## Run the backend
+The frontend uses relative `/health` and `/api` paths through the Vite development
+proxy. `VITE_API_PROXY_TARGET` selects the local backend. A deployed frontend can
+use `VITE_API_BASE_URL`; backend `FRONTEND_ORIGINS` must contain only the exact
+allowed origins.
+
+## Run and test the backend
 
 Python 3.11 or newer is required.
 
@@ -129,19 +177,33 @@ cd backend
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -e ".[dev]"
+python -m pytest -q
 python -m uvicorn app.main:app --reload --port 8000
 ```
 
-Then verify it in another shell:
+Verify health from another shell:
 
 ```powershell
 Invoke-RestMethod http://127.0.0.1:8000/health
-python -m pytest
 ```
 
-## Run the frontend
+Tests use an injected deterministic extractor to isolate domain and API behavior.
+That fake exists only under `backend/tests/` and is never used by production
+composition. Adapter tests use an in-memory HTTP transport and make no paid calls.
 
-Node.js 20.19+ or 22.12+ is recommended by the selected Vite release.
+The live smoke test is deliberately opt-in. With a real key in the environment,
+it sends two unfamiliar fictional quotes through the configured model and checks
+their exact evidence after extraction:
+
+```powershell
+$env:RUN_LIVE_AI_TEST = "1"
+python -m pytest -q tests/test_live_openai.py
+```
+
+It is skipped during the ordinary test suite, and no synthetic extraction fallback
+is used when configuration or the provider fails.
+
+## Run the frontend
 
 ```powershell
 cd frontend
@@ -149,19 +211,33 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:5173`. For a production build check:
+Production checks:
 
 ```powershell
+npm run lint
 npm run build
 ```
 
-## Next implementation sequence
+## Privacy and regulatory product rule
 
-1. Build and test the Decimal-based fee engine.
-2. Implement the **real AI quote extractor** using an API key from environment variables, structured output, evidence excerpts, and schema validation.
-3. Add evidence and eligibility checks, then the comparison use case.
-4. Connect the React input and results screens.
-5. Test unfamiliar pasted quotes end to end and prepare the three-minute demo.
+Remove account numbers, identity documents, and confidential client details before
+pasting. Quotes are processed for the request and are not intentionally persisted.
 
-The exact next module is `backend/app/domain/fees.py`: implement its Decimal-based `FeeEngine` behavior with unit tests before adding any AI or comparison orchestration.
+PayoutPath PK does not include a tax calculator and does not assert a repatriation
+threshold. Every successful response includes:
 
+> Verify any tax or regulatory information with a qualified professional and
+> current official sources.
+
+## Remaining release sequence
+
+1. Put a valid OpenAI application API key in `backend/.env` and record a manual
+   integration check on two previously unseen fictional quotes, confirming every
+   returned excerpt matches exactly.
+2. Connect the React input, loading, results, evidence, missing-data, and retry
+   screens to the frozen API contract.
+3. Run backend tests plus frontend lint/build and exercise validation, missing FX,
+   tie, ineligible, provider failure, and narrow-screen paths.
+4. Configure exact production CORS and backend-only secrets, then deploy both
+   services.
+5. Run the three-minute demo twice from the public URL and freeze the submission.

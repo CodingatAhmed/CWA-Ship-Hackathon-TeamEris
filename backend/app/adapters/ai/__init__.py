@@ -1,5 +1,5 @@
-"""Reserved for the mandatory real AI provider QuoteExtractor adapter.
+"""Real AI provider adapter exports."""
 
-No demo extractor or provider SDK integration exists in the setup milestone.
-"""
+from app.adapters.ai.openai_quote_extractor import OpenAIQuoteExtractor
 
+__all__ = ["OpenAIQuoteExtractor"]
