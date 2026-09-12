@@ -1,0 +1,7 @@
+# Runtime dependencies for the Vercel Python function (api/index.py).
+# Mirrors backend/pyproject.toml minus the local dev and ASGI server extras,
+# which Vercel supplies itself.
+fastapi>=0.115,<1.0
+httpx>=0.27,<1.0
+pydantic>=2.8,<3.0
+pydantic-settings>=2.4,<3.0
