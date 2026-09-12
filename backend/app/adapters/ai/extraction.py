@@ -41,8 +41,23 @@ fx_rate_pkr means PKR per one unit of the invoice currency; do not use an invers
 or intermediate-currency rate. Set its currency to the invoice currency code
 alone, the currency of that one unit, so a rate stated as "275 PKR per USD" on a
 USD invoice has value "275" and currency "USD".
-For an explicit availability or exclusion statement, emit eligibility_condition and set eligibility_effect to eligible, conditional, or
-ineligible based only on that excerpt.
+For an explicit availability or exclusion statement, emit eligibility_condition
+and set eligibility_effect to eligible, conditional, or ineligible based only on
+that excerpt.
+
+Field rules that are rejected when broken:
+- fixed_fee, percentage_fee, fx_rate_pkr, receiving_fee_pkr and other_fee need
+  value to be digits only, optionally with a decimal point, such as "10" or
+  "1.5". Never include a symbol, a code, or words.
+- fixed_fee, fx_rate_pkr, receiving_fee_pkr and other_fee need a currency.
+- percentage_fee, settlement_time and eligibility_condition must set currency
+  to null.
+- label is a short human name for the charge, such as "Withdrawal charge". It is
+  never a currency code and never the quoted sentence.
+- eligibility_effect must be null on every term except eligibility_condition.
+  On eligibility_condition it must be exactly one of eligible, conditional,
+  ineligible, unknown, the quoted availability wording belongs in condition, and
+  value must be null.
 
 Put contradictions or interpretations outside the supported subset in
 unsupported_terms or mark the candidate contradictory/unsupported. Mark required
@@ -126,7 +141,8 @@ def parse_extraction_response(
             "%s structured output failed schema validation: %s",
             provider_name,
             "; ".join(
-                f"{'.'.join(str(part) for part in error['loc'])}:{error['type']}"
+                f"{'.'.join(str(part) for part in error['loc'])}"
+                f":{error['type']}:{error.get('msg', '')}"
                 for error in exc.errors()
             ),
         )
