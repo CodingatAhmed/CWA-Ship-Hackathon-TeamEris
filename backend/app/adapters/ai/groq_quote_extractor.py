@@ -1,5 +1,6 @@
 """Groq Responses API adapter for strict, evidence-bearing quote extraction."""
 
+import logging
 from copy import deepcopy
 from typing import Any
 
@@ -18,6 +19,8 @@ from app.application.quote_extractor import (
     QuoteExtractorTimeoutError,
 )
 from app.domain.payment_terms import ExtractedQuote, QuoteDocument
+
+logger = logging.getLogger(__name__)
 
 GROQ_RESPONSES_URL = "https://api.groq.com/openai/v1/responses"
 GROQ_MAX_OUTPUT_TOKENS = 1600
@@ -127,6 +130,15 @@ class GroqQuoteExtractor:
                 "Groq request failed to connect"
             ) from exc
 
+        if response.status_code >= 400:
+            # Log the provider's own error descriptor so a rejected request can
+            # be told apart from a transient outage. Only Groq's error fields
+            # are recorded, never the request body, which carries quote text.
+            logger.error(
+                "Groq responded %s: %s",
+                response.status_code,
+                _provider_error_summary(response),
+            )
         if response.status_code == 401:
             raise QuoteExtractorProviderError("Groq authentication failed")
         if response.status_code == 429:
@@ -147,3 +159,21 @@ class GroqQuoteExtractor:
                 "Groq response did not contain an object"
             )
         return data
+
+
+def _provider_error_summary(response: httpx.Response) -> str:
+    """Summarize a Groq error body by its own descriptor fields only."""
+
+    try:
+        body = response.json()
+    except ValueError:
+        return "<non-JSON error body>"
+    error = body.get("error") if isinstance(body, dict) else None
+    if not isinstance(error, dict):
+        return "<no error object>"
+    parts = [
+        f"{field}={error[field]!r}"
+        for field in ("type", "code", "message")
+        if isinstance(error.get(field), str)
+    ]
+    return "; ".join(parts)[:500] or "<empty error object>"
