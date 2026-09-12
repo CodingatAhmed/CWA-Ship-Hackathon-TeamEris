@@ -8,10 +8,9 @@ function SiteHeader() {
         <span>PayoutPath</span>
         <span className="brand-country">PK</span>
       </a>
-      <span className="milestone-chip">Setup milestone</span>
+      <span className="milestone-chip">Evidence-first payout comparison</span>
     </header>
   )
 }
 
 export default SiteHeader
-
