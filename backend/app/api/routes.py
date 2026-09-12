@@ -79,8 +79,27 @@ async def compare_quotes(
             for quote in request.route_quotes
         ),
     )
+    # Build the response inside the guard as well: serializing extracted values
+    # can still fail validation, and that must stay a safe JSON error rather
+    # than an unhandled exception surfacing as a bare ASGI 500.
     try:
         result = await use_case.execute(command)
+
+        recommendation = None
+        if result.recommendation.quote_id and result.recommendation.summary:
+            recommendation = ConditionalRecommendation(
+                quote_id=result.recommendation.quote_id,
+                summary=result.recommendation.summary,
+                conditions=list(result.recommendation.conditions),
+            )
+
+        return CompareResponse(
+            routes=[_route_response(route) for route in result.routes],
+            recommendation=recommendation,
+            recommendation_reason=result.recommendation.reason,
+            calculation_assumptions=list(result.calculation_assumptions),
+            verification_notice=VerificationNotice(),
+        )
     except QuoteExtractorError as exc:
         return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -91,22 +110,6 @@ async def compare_quotes(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={"detail": "Comparison failed unexpectedly.", "retryable": False},
         )
-
-    recommendation = None
-    if result.recommendation.quote_id and result.recommendation.summary:
-        recommendation = ConditionalRecommendation(
-            quote_id=result.recommendation.quote_id,
-            summary=result.recommendation.summary,
-            conditions=list(result.recommendation.conditions),
-        )
-
-    return CompareResponse(
-        routes=[_route_response(route) for route in result.routes],
-        recommendation=recommendation,
-        recommendation_reason=result.recommendation.reason,
-        calculation_assumptions=list(result.calculation_assumptions),
-        verification_notice=VerificationNotice(),
-    )
 
 
 def _route_response(route: ComparedRoute) -> RouteComparison:

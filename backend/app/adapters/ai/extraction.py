@@ -1,6 +1,7 @@
 """Provider-shared construction and validation for Responses API extraction."""
 
 import json
+import re
 from typing import Any
 
 from pydantic import ValidationError
@@ -28,12 +29,16 @@ exact, case-sensitive, verbatim excerpt from this same quote.
 
 Supported term names are fixed_fee, percentage_fee, fx_rate_pkr,
 receiving_fee_pkr, other_fee, settlement_time, and eligibility_condition.
-For monetary fees preserve currency and payer. A percentage is dimensionless, so
-set its currency to null and preserve its percentage base and payer. Preserve
-uncertainty and conditions.
+For monetary fees preserve currency and payer. Every currency field must be one
+three-letter uppercase code on its own, such as USD or PKR. Never write a pair, a
+phrase, or a symbol: "PKR PER USD", "US$", and "dollars" are all invalid. A
+percentage is dimensionless, so set its currency to null and preserve its
+percentage base and payer. Preserve uncertainty and conditions.
 fx_rate_pkr means PKR per one unit of the invoice currency; do not use an inverse
-or intermediate-currency rate. For an explicit availability or exclusion statement,
-emit eligibility_condition and set eligibility_effect to eligible, conditional, or
+or intermediate-currency rate. Set its currency to the invoice currency code
+alone, the currency of that one unit, so a rate stated as "275 PKR per USD" on a
+USD invoice has value "275" and currency "USD".
+For an explicit availability or exclusion statement, emit eligibility_condition and set eligibility_effect to eligible, conditional, or
 ineligible based only on that excerpt.
 
 Put contradictions or interpretations outside the supported subset in
@@ -112,9 +117,11 @@ def parse_extraction_response(
             f"{provider_name} output returned a mismatched quote identifier"
         )
 
+    usable_terms, unusable_currency_terms = _partition_by_currency(payload.terms)
+
     return ExtractedQuote(
         quote_id=payload.quote_id,
-        terms=tuple(_to_domain_term(term) for term in payload.terms),
+        terms=tuple(_to_domain_term(term) for term in usable_terms),
         missing_terms=tuple(
             MissingTerm(
                 name=item.name,
@@ -130,7 +137,8 @@ def parse_extraction_response(
                 affects_calculation=item.affects_calculation,
             )
             for item in payload.unsupported_terms
-        ),
+        )
+        + unusable_currency_terms,
     )
 
 
@@ -162,12 +170,58 @@ def _extract_output_text(data: dict[str, Any], provider_name: str) -> str:
     )
 
 
+def canonical_currency(value: str | None) -> str | None:
+    """Return the ISO-style three-letter code, or None when it is not one.
+
+    A model may describe a pair rather than a unit, for example "PKR PER USD"
+    for a conversion rate. Guessing which half was meant would silently change
+    the money maths, so an unreadable currency is refused rather than repaired.
+    """
+
+    if value is None:
+        return None
+    normalized = value.strip().upper()
+    return normalized if re.fullmatch(r"[A-Z]{3}", normalized) else None
+
+
+def _partition_by_currency(
+    candidates: list[CandidateTerm],
+) -> tuple[list[CandidateTerm], tuple[MissingTerm, ...]]:
+    """Keep terms whose currency is usable; report the rest as unsupported.
+
+    The API contract exposes currencies as three-letter codes, so a term that
+    carries anything else cannot be serialized. Dropping only that term keeps
+    the remaining evidence useful instead of failing the whole comparison.
+    """
+
+    usable: list[CandidateTerm] = []
+    unsupported: list[MissingTerm] = []
+    for candidate in candidates:
+        if (
+            candidate.currency is not None
+            and canonical_currency(candidate.currency) is None
+        ):
+            unsupported.append(
+                MissingTerm(
+                    name=candidate.name.value,
+                    reason=(
+                        "The quote's stated currency could not be read as a "
+                        "three-letter code, so this term was not used."
+                    ),
+                    affects_calculation=True,
+                )
+            )
+            continue
+        usable.append(candidate)
+    return usable, tuple(unsupported)
+
+
 def _to_domain_term(candidate: CandidateTerm) -> PaymentTerm:
     return PaymentTerm(
         name=candidate.name,
         value=candidate.value,
         label=candidate.label,
-        currency=candidate.currency.upper() if candidate.currency else None,
+        currency=canonical_currency(candidate.currency),
         payer=candidate.payer,
         percentage_base=candidate.percentage_base,
         condition=candidate.condition,
