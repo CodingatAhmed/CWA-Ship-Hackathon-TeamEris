@@ -222,29 +222,22 @@ def test_groq_http_failures_do_not_leak_provider_body_or_create_values(
     assert "private-test-key" not in str(caught.value)
 
 
-def test_groq_schema_does_not_require_the_empty_gap_arrays() -> None:
-    """Groq rejects a whole request when the model omits an empty array.
+def test_both_schemas_list_every_property_as_required() -> None:
+    """Strict structured output rejects a schema that omits any property.
 
-    Production returned 400 json_validate_failed: "missing properties:
-    'missing_terms', 'unsupported_terms'".
+    Groq returned 400 invalid_request_error when `required` was narrowed:
+    "`required` is required ... including every key in properties". Pydantic
+    drops fields that carry defaults, so extraction_text_config restores them.
     """
 
     from app.adapters.ai.extraction import extraction_text_config
     from app.adapters.ai.groq_quote_extractor import groq_extraction_text_config
 
-    groq_required = groq_extraction_text_config()["format"]["schema"]["required"]
-    assert "missing_terms" not in groq_required
-    assert "unsupported_terms" not in groq_required
-    assert "quote_id" in groq_required and "terms" in groq_required
-
-    # OpenAI strict mode still needs every property listed.
-    openai_required = extraction_text_config()["format"]["schema"]["required"]
-    assert set(openai_required) == {
-        "quote_id",
-        "terms",
-        "missing_terms",
-        "unsupported_terms",
-    }
+    expected = {"quote_id", "terms", "missing_terms", "unsupported_terms"}
+    for config in (extraction_text_config(), groq_extraction_text_config()):
+        schema = config["format"]["schema"]
+        assert set(schema["required"]) == expected
+        assert set(schema["properties"]) == expected
 
 
 def test_payload_parses_when_the_model_omits_both_gap_arrays() -> None:
