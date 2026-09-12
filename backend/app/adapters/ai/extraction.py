@@ -50,7 +50,9 @@ facts that are absent or ambiguous in missing_terms. affects_calculation must be
 true for a missing conversion rate, eligibility support, fee amount/currency/payer,
 percentage base, contradictory charge, or unclear additional deductions; it may be
 false for missing display-only settlement wording. Do not silently treat omission
-as zero. Return only the requested structured object.
+as zero. Always include both missing_terms and unsupported_terms, using an empty
+array when there is nothing to report. Return only the requested structured
+object.
 """.strip()
 
 
@@ -87,15 +89,22 @@ def build_quote_input(quote: QuoteDocument) -> list[dict[str, Any]]:
     ]
 
 
+PAYLOAD_GAP_FIELDS = ("missing_terms", "unsupported_terms")
+
+
 def extraction_text_config() -> dict[str, Any]:
     """Return the strict schema supported by both configured Responses APIs."""
 
+    schema = ExtractionPayload.model_json_schema()
+    # Strict structured output requires every property to be listed as
+    # required, which Pydantic omits for fields carrying defaults.
+    schema["required"] = list(schema.get("properties", {}))
     return {
         "format": {
             "type": "json_schema",
             "name": "payout_quote_extraction",
             "strict": True,
-            "schema": ExtractionPayload.model_json_schema(),
+            "schema": schema,
         }
     }
 

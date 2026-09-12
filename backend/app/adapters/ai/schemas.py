@@ -82,5 +82,8 @@ class CandidateMissingTerm(AdapterModel):
 class ExtractionPayload(AdapterModel):
     quote_id: str = Field(min_length=1)
     terms: list[CandidateTerm]
-    missing_terms: list[CandidateMissingTerm]
-    unsupported_terms: list[CandidateMissingTerm]
+    # Default to empty so a generation that omits an empty gap list still
+    # parses. The JSON schema sent to providers still advertises both keys;
+    # see extraction_text_config.
+    missing_terms: list[CandidateMissingTerm] = Field(default_factory=list)
+    unsupported_terms: list[CandidateMissingTerm] = Field(default_factory=list)

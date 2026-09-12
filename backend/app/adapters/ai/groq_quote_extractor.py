@@ -8,6 +8,7 @@ import httpx
 
 from app.adapters.ai.extraction import (
     EXTRACTION_INSTRUCTIONS,
+    PAYLOAD_GAP_FIELDS,
     build_quote_input,
     extraction_text_config,
     parse_extraction_response,
@@ -27,16 +28,25 @@ GROQ_MAX_OUTPUT_TOKENS = 1600
 
 
 def groq_extraction_text_config() -> dict[str, Any]:
-    """Inline nullable enum refs that Groq cannot disambiguate inside anyOf.
+    """Adapt the shared schema to Groq's structured-output validator.
 
-    The runtime response still passes through the original strict Pydantic model.
-    Only Groq's generation schema is normalized, leaving the OpenAI schema intact.
+    Two adjustments, both generation-side only. Nullable enum refs are inlined
+    because Groq cannot disambiguate them inside anyOf. The empty gap lists are
+    dropped from `required` because Groq validates the finished generation and
+    rejects the whole request with 400 json_validate_failed when the model
+    omits an empty array; the parser defaults them back to empty.
+
+    The runtime response still passes through the original strict Pydantic
+    model, and the OpenAI schema is left intact.
     """
 
     text_config = extraction_text_config()
     schema = text_config["format"]["schema"]
     definitions = schema.get("$defs", {})
     _inline_any_of_refs(schema, definitions)
+    schema["required"] = [
+        name for name in schema.get("required", []) if name not in PAYLOAD_GAP_FIELDS
+    ]
     return text_config
 
 
