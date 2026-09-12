@@ -16,6 +16,7 @@ from app.application.quote_extractor import (
     QuoteExtractorConfigurationError,
     QuoteExtractorInvalidResponseError,
     QuoteExtractorProviderError,
+    QuoteExtractorRateLimitError,
     QuoteExtractorTimeoutError,
 )
 from app.domain.payment_terms import ExtractedQuote, QuoteDocument
@@ -148,7 +149,7 @@ class GroqQuoteExtractor:
         if response.status_code == 401:
             raise QuoteExtractorProviderError("Groq authentication failed")
         if response.status_code == 429:
-            raise QuoteExtractorProviderError("Groq rate limit was reached")
+            raise QuoteExtractorRateLimitError("Groq rate limit was reached")
         if response.status_code >= 400:
             raise QuoteExtractorProviderError(
                 f"Groq request failed with status {response.status_code}"

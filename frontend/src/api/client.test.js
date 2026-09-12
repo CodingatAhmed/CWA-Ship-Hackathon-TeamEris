@@ -78,6 +78,20 @@ test('Groq provider outages stay retryable and keep the backend sentence', async
   assert.equal(error.message, 'The AI provider is temporarily unavailable. Please retry.')
 })
 
+test('a provider rate limit stays retryable and keeps its waiting advice', async () => {
+  respondWith(503, {
+    detail:
+      "The AI provider's rate limit was reached. Wait about a minute and retry.",
+    retryable: true,
+  })
+
+  const error = await compareError()
+
+  assert.equal(error.kind, ERROR_KIND.RETRYABLE)
+  assert.equal(error.retryable, true)
+  assert.match(error.message, /rate limit was reached/)
+})
+
 test('Groq timeouts keep their own distinguishable sentence', async () => {
   respondWith(503, { detail: 'AI extraction timed out. Please retry.', retryable: true })
 

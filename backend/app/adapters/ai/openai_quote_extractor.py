@@ -15,6 +15,7 @@ from app.application.quote_extractor import (
     QuoteExtractorConfigurationError,
     QuoteExtractorInvalidResponseError,
     QuoteExtractorProviderError,
+    QuoteExtractorRateLimitError,
     QuoteExtractorTimeoutError,
 )
 from app.domain.payment_terms import ExtractedQuote, QuoteDocument
@@ -84,6 +85,8 @@ class OpenAIQuoteExtractor:
                 "OpenAI request failed to connect"
             ) from exc
 
+        if response.status_code == 429:
+            raise QuoteExtractorRateLimitError("OpenAI rate limit was reached")
         if response.status_code >= 400:
             raise QuoteExtractorProviderError(
                 f"OpenAI request failed with status {response.status_code}"

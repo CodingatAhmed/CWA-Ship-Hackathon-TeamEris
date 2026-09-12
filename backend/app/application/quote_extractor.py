@@ -29,6 +29,14 @@ class QuoteExtractorProviderError(QuoteExtractorUnavailableError):
     public_message = "The AI provider is temporarily unavailable. Please retry."
 
 
+class QuoteExtractorRateLimitError(QuoteExtractorProviderError):
+    """The provider refused the request because a usage limit was reached."""
+
+    public_message = (
+        "The AI provider's rate limit was reached. Wait about a minute and retry."
+    )
+
+
 class QuoteExtractorConfigurationError(QuoteExtractorError):
     """Required server-side provider configuration is absent or unsupported."""
 
