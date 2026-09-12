@@ -5,8 +5,8 @@ import ComparisonForm from '../components/ComparisonForm.jsx'
 import ComparisonResults from '../components/ComparisonResults.jsx'
 import ErrorPanel from '../components/ErrorPanel.jsx'
 import SiteHeader from '../components/SiteHeader.jsx'
+import WorkflowExplainer from '../components/WorkflowExplainer.jsx'
 import { ApiError, ERROR_KIND, apiClient } from '../api/client.js'
-import { MOCK_COMPARE_RESPONSE, MOCK_ENABLED } from '../data/mockResponse.js'
 import {
   buildPayload,
   createDemoForm,
@@ -23,14 +23,63 @@ const STATUS = Object.freeze({
   ERROR: 'error',
 })
 
-const NO_ERRORS = { routes: [{}, {}] }
+const TOP_LEVEL_FIELDS = Object.freeze({
+  invoice_amount: 'invoiceAmount',
+  invoice_currency: 'invoiceCurrency',
+  client_country: 'clientCountry',
+  platform_or_context: 'platformOrContext',
+})
+
+const ROUTE_FIELDS = Object.freeze({
+  route_name: 'routeName',
+  pasted_text: 'pastedText',
+})
+
+function createNoErrors() {
+  return { routes: [{}, {}] }
+}
+
+function validationErrorsFromApi(issues) {
+  const errors = createNoErrors()
+
+  for (const issue of issues ?? []) {
+    const location = Array.isArray(issue.location) ? issue.location : []
+    const routeRoot = location.indexOf('route_quotes')
+
+    if (routeRoot >= 0) {
+      const routeIndex = location[routeRoot + 1]
+      const apiField = location[routeRoot + 2]
+      const field = ROUTE_FIELDS[apiField]
+      if (Number.isInteger(routeIndex) && errors.routes[routeIndex] && field) {
+        errors.routes[routeIndex][field] = issue.message
+      }
+      continue
+    }
+
+    const field = TOP_LEVEL_FIELDS[location.at(-1)]
+    if (field) errors[field] = issue.message
+  }
+
+  return errors
+}
+
+function contextFromPayload(payload) {
+  return {
+    invoiceAmount: payload.invoice_amount,
+    invoiceCurrency: payload.invoice_currency,
+    clientCountry: payload.client_country,
+    platformOrContext: payload.platform_or_context,
+  }
+}
 
 function HomePage() {
   const [form, setForm] = useState(createEmptyForm)
   const [status, setStatus] = useState(STATUS.INPUT)
-  const [errors, setErrors] = useState(NO_ERRORS)
+  const [errors, setErrors] = useState(createNoErrors)
   const [result, setResult] = useState(null)
   const [error, setError] = useState(null)
+  const [submittedContext, setSubmittedContext] = useState(null)
+  const [isDemo, setIsDemo] = useState(false)
 
   const inFlightRef = useRef(false)
   const resultsRef = useRef(null)
@@ -40,6 +89,17 @@ function HomePage() {
       resultsRef.current.focus()
     }
   }, [status])
+
+  useEffect(() => {
+    if (status !== STATUS.ERROR || error?.kind !== ERROR_KIND.VALIDATION) return
+
+    const focusFrame = window.requestAnimationFrame(() => {
+      const invalidField = document.querySelector('#comparison-form [aria-invalid="true"]')
+      invalidField?.focus()
+    })
+
+    return () => window.cancelAnimationFrame(focusFrame)
+  }, [error, errors, status])
 
   const runComparison = useCallback(async (currentForm) => {
     if (inFlightRef.current) return
@@ -57,16 +117,15 @@ function HomePage() {
       return
     }
 
+    const payload = buildPayload(currentForm)
     inFlightRef.current = true
+    setSubmittedContext(contextFromPayload(payload))
+    setResult(null)
     setStatus(STATUS.ANALYSING)
     setError(null)
 
     try {
-      const payload = buildPayload(currentForm)
-      const response = MOCK_ENABLED
-        ? MOCK_COMPARE_RESPONSE
-        : await apiClient.compareQuotes(payload)
-
+      const response = await apiClient.compareQuotes(payload)
       setResult(response)
       setStatus(STATUS.RESULTS)
     } catch (caught) {
@@ -77,6 +136,9 @@ function HomePage() {
               kind: ERROR_KIND.UNEXPECTED,
             })
 
+      if (apiError.kind === ERROR_KIND.VALIDATION) {
+        setErrors(validationErrorsFromApi(apiError.validationIssues))
+      }
       setError(apiError)
       setStatus(STATUS.ERROR)
     } finally {
@@ -96,38 +158,57 @@ function HomePage() {
     runComparison(form)
   }, [form, runComparison])
 
-  const handleFieldChange = useCallback((field, value) => {
-    setForm((current) => ({ ...current, [field]: value }))
-    setErrors((current) => ({ ...current, [field]: undefined }))
+  const dismissErrorForEditing = useCallback(() => {
+    setError(null)
+    setStatus((current) => (current === STATUS.ERROR ? STATUS.INPUT : current))
   }, [])
 
-  const handleRouteChange = useCallback((index, field, value) => {
-    setForm((current) => ({
-      ...current,
-      routes: current.routes.map((route, routeIndex) =>
-        routeIndex === index ? { ...route, [field]: value } : route,
-      ),
-    }))
-    setErrors((current) => ({
-      ...current,
-      routes: current.routes.map((routeErrors, routeIndex) =>
-        routeIndex === index ? { ...routeErrors, [field]: undefined } : routeErrors,
-      ),
-    }))
-  }, [])
+  const handleFieldChange = useCallback(
+    (field, value) => {
+      setForm((current) => ({ ...current, [field]: value }))
+      setErrors((current) => ({ ...current, [field]: undefined }))
+      dismissErrorForEditing()
+    },
+    [dismissErrorForEditing],
+  )
+
+  const handleRouteChange = useCallback(
+    (index, field, value) => {
+      setForm((current) => ({
+        ...current,
+        routes: current.routes.map((route, routeIndex) =>
+          routeIndex === index ? { ...route, [field]: value } : route,
+        ),
+      }))
+      setErrors((current) => ({
+        ...current,
+        routes: current.routes.map((routeErrors, routeIndex) =>
+          routeIndex === index ? { ...routeErrors, [field]: undefined } : routeErrors,
+        ),
+      }))
+      setIsDemo(false)
+      dismissErrorForEditing()
+    },
+    [dismissErrorForEditing],
+  )
 
   const handleLoadDemo = useCallback(() => {
     setForm(createDemoForm())
-    setErrors(NO_ERRORS)
+    setErrors(createNoErrors())
     setError(null)
+    setResult(null)
+    setSubmittedContext(null)
+    setIsDemo(true)
     setStatus(STATUS.INPUT)
   }, [])
 
   const handleClear = useCallback(() => {
     setForm(createEmptyForm())
-    setErrors(NO_ERRORS)
+    setErrors(createNoErrors())
     setError(null)
     setResult(null)
+    setSubmittedContext(null)
+    setIsDemo(false)
     setStatus(STATUS.INPUT)
   }, [])
 
@@ -150,25 +231,21 @@ function HomePage() {
         {showForm && (
           <section className="hero" aria-labelledby="page-title">
             <div className="hero-copy">
-              <p className="eyebrow">A clearer path from quote to payout</p>
-              <h1 id="page-title">Know what reaches you before choosing a route.</h1>
+              <p className="eyebrow">Payment-route clarity for Pakistan</p>
+              <h1 id="page-title">Know what reaches you before choosing a payout route.</h1>
               <p className="hero-intro">
-                Enter your invoice context, paste two payout quotes, and see the estimated net
-                PKR for each route with the exact wording every figure came from.
+                Built for Pakistani freelancers, remote workers, and small agencies receiving an
+                overseas invoice. Paste the two quotes actually available to you and compare their
+                supported estimated net PKR—not a generic provider list.
               </p>
+              <div className="hero-trust-row" aria-label="Product safeguards">
+                <span>Evidence attached</span>
+                <span>Decimal maths</span>
+                <span>No money moved</span>
+              </div>
             </div>
 
-            <aside className="how-panel" aria-label="How the comparison works">
-              <h2>How it works</h2>
-              <ol>
-                <li>AI reads each pasted quote and extracts only stated terms.</li>
-                <li>Every term is checked against the text you actually pasted.</li>
-                <li>Fees and the net PKR are calculated with exact decimal maths.</li>
-              </ol>
-              <p className="how-note">
-                Missing or unclear terms stay visible. Nothing is invented to fill a gap.
-              </p>
-            </aside>
+            <WorkflowExplainer />
           </section>
         )}
 
@@ -182,6 +259,7 @@ function HomePage() {
             errors={errors}
             isSubmitting={status === STATUS.ANALYSING}
             serverFieldMessages={serverFieldMessages}
+            isDemo={isDemo}
             onFieldChange={handleFieldChange}
             onRouteChange={handleRouteChange}
             onSubmit={handleSubmit}
@@ -194,15 +272,21 @@ function HomePage() {
 
         {status === STATUS.RESULTS && result && (
           <div ref={resultsRef} tabIndex={-1} className="results-wrap">
-            <ComparisonResults result={result} onEditInputs={handleEditInputs} />
+            <ComparisonResults
+              result={result}
+              submittedContext={submittedContext}
+              isDemo={isDemo}
+              onEditInputs={handleEditInputs}
+            />
           </div>
         )}
       </main>
 
       <footer>
         <p>
-          Verify any tax or regulatory information with a qualified professional and current
-          official sources.
+          PayoutPath compares information you supply; it does not move money or claim provider
+          affiliation. Verify any tax or regulatory information with a qualified professional and
+          current official sources.
         </p>
       </footer>
     </div>

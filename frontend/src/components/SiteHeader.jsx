@@ -8,7 +8,7 @@ function SiteHeader() {
         <span>PayoutPath</span>
         <span className="brand-country">PK</span>
       </a>
-      <span className="milestone-chip">Evidence-first payout comparison</span>
+      <span className="milestone-chip">Built for Pakistan-based earners</span>
     </header>
   )
 }

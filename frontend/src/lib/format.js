@@ -32,17 +32,38 @@ export function statusLabel(status) {
 export function formatMoney(value, currency) {
   if (value === null || value === undefined || value === '') return null
 
-  const numeric = Number(value)
-  if (!Number.isFinite(numeric)) return String(value)
+  const raw = String(value).trim()
+  const match = raw.match(/^(-?)(\d+)(?:\.(\d+))?$/)
+  if (!match) {
+    const isExponentDecimal = /^-?\d+(?:\.\d+)?[Ee][+-]?\d+$/.test(raw)
+    if (!isExponentDecimal) return raw
+    return currency ? `${currency} ${raw}` : raw
+  }
 
-  const formatted = numeric.toLocaleString('en-PK', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })
+  const [, sign, whole, fraction = ''] = match
+  const groupedWhole = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+  const formatted = `${sign}${groupedWhole}.${fraction.padEnd(2, '0')}`
 
   return currency ? `${currency} ${formatted}` : formatted
 }
 
 export function formatPkr(value) {
   return formatMoney(value, 'PKR')
+}
+
+export function formatFxRate(value, invoiceCurrency) {
+  if (value === null || value === undefined || value === '') return null
+  const rate = formatMoney(value, 'PKR')
+  return invoiceCurrency ? `${rate} per ${invoiceCurrency}` : `${rate} per invoice unit`
+}
+
+export function formatTermValue(term) {
+  if (term.value === null || term.value === undefined || term.value === '') {
+    return 'Descriptive term'
+  }
+
+  if (term.name === 'percentage_fee') return `${term.value}%`
+  if (term.name === 'fx_rate_pkr') return formatFxRate(term.value, term.currency)
+  if (term.currency) return `${term.currency} ${term.value}`
+  return term.value
 }

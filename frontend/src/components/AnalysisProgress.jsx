@@ -1,7 +1,8 @@
 const STAGES = [
-  'Reading route terms',
-  'Checking source evidence',
-  'Calculating estimated net PKR',
+  ['AI extraction', 'Reading only the terms stated in each route quote'],
+  ['Evidence verification', 'Checking excerpts against the same pasted quote'],
+  ['Decimal fee maths', 'Calculating supported fees and estimated net PKR'],
+  ['Conditional ranking', 'Comparing only routes with supported estimates'],
 ]
 
 /**
@@ -15,21 +16,27 @@ function AnalysisProgress({ routeCount }) {
         <span className="analysis-spinner" aria-hidden="true" />
         <div>
           <h2>Comparing {routeCount} routes</h2>
-          <p>Extraction is grounded in the exact text you pasted. This usually takes a few seconds.</p>
+          <p>
+            One live request is processing both quotes. Provider response time can vary.
+          </p>
         </div>
       </div>
 
       <ul className="analysis-stages">
-        {STAGES.map((stage) => (
+        {STAGES.map(([stage, detail]) => (
           <li key={stage}>
             <span className="stage-pulse" aria-hidden="true" />
-            {stage}
+            <span>
+              <strong>{stage}</strong>
+              <small>{detail}</small>
+            </span>
           </li>
         ))}
       </ul>
 
       <p className="analysis-note">
-        No result is shown until the comparison service returns evidence-backed terms.
+        These are the requested workflow phases, not live completion markers. No phase is shown
+        as finished until the API returns the complete evidence-backed result.
       </p>
     </section>
   )

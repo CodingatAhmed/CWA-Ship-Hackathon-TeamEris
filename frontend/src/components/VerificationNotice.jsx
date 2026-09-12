@@ -2,18 +2,19 @@ function VerificationNotice({ notice }) {
   if (!notice) return null
 
   return (
-    <section className="verification-notice" aria-label="Verification notice">
+    <section className="verification-notice" aria-labelledby="verification-title">
       <span className="verification-icon" aria-hidden="true">
         ⚑
       </span>
       <div>
+        <h2 id="verification-title">Professional verification</h2>
         <p>{notice.tax_and_regulatory_guidance}</p>
         {notice.official_source_urls?.length > 0 && (
           <ul className="verification-sources">
-            {notice.official_source_urls.map((url) => (
-              <li key={url}>
+            {notice.official_source_urls.map((url, index) => (
+              <li key={`${url}-${index}`}>
                 <a href={url} target="_blank" rel="noreferrer noopener">
-                  {url}
+                  Open official source {index + 1}
                 </a>
               </li>
             ))}

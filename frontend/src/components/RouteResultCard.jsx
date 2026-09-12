@@ -1,7 +1,7 @@
 import EvidenceList from './EvidenceList.jsx'
 import FeeBreakdown from './FeeBreakdown.jsx'
-import MissingTerms from './MissingTerms.jsx'
-import { formatPkr, statusLabel } from '../lib/format.js'
+import TermIssues from './TermIssues.jsx'
+import { formatFxRate, formatPkr, statusLabel } from '../lib/format.js'
 
 const STATUS_ICONS = {
   ready: '✓',
@@ -10,8 +10,14 @@ const STATUS_ICONS = {
   ineligible: '×',
 }
 
-function RouteResultCard({ route, isRecommended }) {
+const NULL_NET_MESSAGES = {
+  insufficient_evidence: 'Not enough evidence.',
+  ineligible: 'Not calculated — the quoted terms exclude this context.',
+}
+
+function RouteResultCard({ route, isRecommended, invoiceCurrency }) {
   const netPkr = formatPkr(route.estimated_net_pkr)
+  const fxRate = formatFxRate(route.fx_rate_pkr, invoiceCurrency)
   const statusIcon = STATUS_ICONS[route.status] ?? '•'
 
   return (
@@ -34,16 +40,38 @@ function RouteResultCard({ route, isRecommended }) {
         {netPkr ? (
           <strong className="route-net-value">{netPkr}</strong>
         ) : (
-          <strong className="route-net-value route-net-missing">Not enough evidence.</strong>
+          <strong className="route-net-value route-net-missing">
+            {NULL_NET_MESSAGES[route.status] ?? 'No supported estimate.'}
+          </strong>
         )}
+        <span className="route-net-caption">
+          {netPkr
+            ? 'Calculated by the backend from verified quote terms.'
+            : 'A missing, unsupported, or ineligible term prevented a safe estimate.'}
+        </span>
       </div>
 
+      <dl className="route-math-summary">
+        <div>
+          <dt>Quoted conversion rate</dt>
+          <dd>{fxRate ?? 'Not supported by the quote'}</dd>
+        </div>
+        <div>
+          <dt>Fee components</dt>
+          <dd>{route.itemized_fees.length}</dd>
+        </div>
+      </dl>
+
       <section className="route-section">
-        <h4>Itemized deductions</h4>
+        <h4>Itemized fee maths</h4>
         <FeeBreakdown fees={route.itemized_fees} />
       </section>
 
-      <MissingTerms missingTerms={route.missing_terms} />
+      <TermIssues
+        missingTerms={route.missing_terms}
+        unsupportedTerms={route.unsupported_terms}
+        showInsufficientSummary={route.status === 'insufficient_evidence'}
+      />
 
       {route.conditions.length > 0 && (
         <div className="route-conditions">
@@ -54,16 +82,19 @@ function RouteResultCard({ route, isRecommended }) {
             Conditions stated in this quote
           </h4>
           <ul>
-            {route.conditions.map((condition) => (
-              <li key={condition}>{condition}</li>
+            {route.conditions.map((condition, index) => (
+              <li key={`${condition}-${index}`}>{condition}</li>
             ))}
           </ul>
         </div>
       )}
 
       <section className="route-section">
-        <h4>Extracted terms and evidence</h4>
-        <EvidenceList terms={route.extracted_terms} />
+        <div className="evidence-section-heading">
+          <h4>Extracted terms and exact evidence</h4>
+          <span>Verified against this pasted quote</span>
+        </div>
+        <EvidenceList terms={route.extracted_terms} routeName={route.route_name} />
       </section>
     </article>
   )

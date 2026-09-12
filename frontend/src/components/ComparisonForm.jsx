@@ -11,11 +11,12 @@ function ComparisonForm({
   onSubmit,
   onLoadDemo,
   onClear,
+  isDemo,
 }) {
   const disabled = isSubmitting
 
   return (
-    <form className="comparison-form" noValidate onSubmit={onSubmit}>
+    <form id="comparison-form" className="comparison-form" noValidate onSubmit={onSubmit}>
       <div className="form-block">
         <div className="form-block-head">
           <span className="block-number" aria-hidden="true">
@@ -23,7 +24,7 @@ function ComparisonForm({
           </span>
           <div>
             <h2>Invoice context</h2>
-            <p>Used only to calculate this comparison. Nothing is stored.</p>
+            <p>Describe the overseas invoice this Pakistan-based freelancer needs to receive.</p>
           </div>
         </div>
 
@@ -36,7 +37,7 @@ function ComparisonForm({
               type="text"
               inputMode="decimal"
               autoComplete="off"
-              placeholder="1850.00"
+              placeholder="1000.00"
               value={form.invoiceAmount}
               disabled={disabled}
               aria-invalid={Boolean(errors.invoiceAmount)}
@@ -95,7 +96,7 @@ function ComparisonForm({
               type="text"
               maxLength={200}
               autoComplete="off"
-              placeholder="Direct contract invoice paid by international bank transfer"
+              placeholder="Direct client invoice for a Pakistan-based freelancer"
               value={form.platformOrContext}
               disabled={disabled}
               aria-invalid={Boolean(errors.platformOrContext)}
@@ -114,7 +115,7 @@ function ComparisonForm({
           </span>
           <div>
             <h2>Two route quotes</h2>
-            <p>Paste the provider wording verbatim so every extracted term keeps its source.</p>
+            <p>Paste exactly two quotes verbatim so every extracted term keeps its source.</p>
           </div>
         </div>
 
@@ -123,6 +124,13 @@ function ComparisonForm({
           Remove account numbers, identity documents, and confidential client details before
           pasting.
         </p>
+
+        {isDemo && (
+          <p className="demo-loaded" role="status">
+            Fictional demonstration loaded. Its route names, wording, fees, and rates are
+            illustrative—not current provider prices.
+          </p>
+        )}
 
         <div className="route-grid">
           {form.routes.map((route, index) => (
@@ -165,7 +173,7 @@ function ComparisonForm({
           Clear
         </button>
         <p className="demo-note">
-          Demo quotes are fictional examples, not current provider prices.
+          The demo is sent through the real backend and AI extractor; it is never a fixture result.
         </p>
       </div>
     </form>

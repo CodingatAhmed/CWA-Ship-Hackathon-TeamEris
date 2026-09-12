@@ -27,8 +27,18 @@ export function createDemoForm() {
   }
 }
 
-const AMOUNT_PATTERN = /^\d{1,16}(\.\d{1,2})?$/
+const AMOUNT_PATTERN = /^\d+(?:\.\d{1,2})?$/
 const CURRENCY_PATTERN = /^[A-Za-z]{3}$/
+
+function isZeroDecimal(value) {
+  return /^0+(?:\.0{1,2})?$/.test(value)
+}
+
+function hasTooManyDigits(value) {
+  const [whole, fraction = ''] = value.split('.')
+  const significantWhole = whole.replace(/^0+(?=\d)/, '')
+  return significantWhole.length > 16 || significantWhole.length + fraction.length > 18
+}
 
 /**
  * Local validation mirrors `CompareRequest` so the user sees field-level
@@ -42,7 +52,9 @@ export function validateForm(form) {
     errors.invoiceAmount = 'Enter the invoice amount.'
   } else if (!AMOUNT_PATTERN.test(amount)) {
     errors.invoiceAmount = 'Use a positive number with at most two decimal places.'
-  } else if (Number(amount) <= 0) {
+  } else if (hasTooManyDigits(amount)) {
+    errors.invoiceAmount = 'Use at most 16 digits before and 2 digits after the decimal point.'
+  } else if (isZeroDecimal(amount)) {
     errors.invoiceAmount = 'The invoice amount must be greater than zero.'
   }
 
@@ -92,13 +104,15 @@ export function validateForm(form) {
 
 export function hasErrors(errors) {
   const topLevel = Object.entries(errors).some(([key, value]) => key !== 'routes' && Boolean(value))
-  const routeLevel = errors.routes.some((routeErrors) => Object.keys(routeErrors).length > 0)
+  const routeLevel = (errors.routes ?? []).some((routeErrors) =>
+    Object.values(routeErrors).some(Boolean),
+  )
   return topLevel || routeLevel
 }
 
 /** Normalize formatting only; never alter the meaning of pasted quote text. */
 export function buildPayload(form) {
-  const amount = Number(form.invoiceAmount.trim()).toFixed(2)
+  const amount = normalizeDecimalString(form.invoiceAmount)
 
   return {
     invoice_amount: amount,
@@ -111,4 +125,12 @@ export function buildPayload(form) {
       pasted_text: route.pastedText.trim(),
     })),
   }
+}
+
+/** Preserve exact decimal digits instead of routing money through IEEE-754 numbers. */
+export function normalizeDecimalString(value) {
+  const [rawWhole, rawFraction = ''] = value.trim().split('.')
+  const whole = rawWhole.replace(/^0+(?=\d)/, '') || '0'
+  const fraction = rawFraction.padEnd(2, '0')
+  return `${whole}.${fraction}`
 }
