@@ -3,30 +3,45 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.adapters.ai import OpenAIQuoteExtractor
+from app.adapters.ai import GroqQuoteExtractor, OpenAIQuoteExtractor
 from app.api.routes import router
 from app.application.compare_quotes import CompareQuotes
+from app.application.quote_extractor import (
+    MisconfiguredQuoteExtractor,
+    QuoteExtractor,
+)
 from app.config import Settings, get_settings
 from app.domain.fees import DecimalFeeEngine
 from app.domain.ranking import RankingPolicy
 
 
-def build_compare_service(settings: Settings) -> CompareQuotes:
-    """Wire the one real provider adapter to deterministic application services."""
+def build_quote_extractor(settings: Settings) -> QuoteExtractor:
+    """Construct only the provider selected for this backend deployment."""
 
-    provider_is_openai = settings.ai_provider.strip().lower() == "openai"
+    provider = settings.ai_provider.strip().lower()
+    if provider not in {"openai", "groq"}:
+        return MisconfiguredQuoteExtractor("AI_PROVIDER is unsupported")
+
     api_key = (
         settings.ai_api_key.get_secret_value()
-        if provider_is_openai and settings.ai_api_key is not None
+        if settings.ai_api_key is not None
         else None
     )
-    extractor = OpenAIQuoteExtractor(
+    adapter_type = (
+        OpenAIQuoteExtractor if provider == "openai" else GroqQuoteExtractor
+    )
+    return adapter_type(
         api_key=api_key,
-        model=settings.ai_model if provider_is_openai else None,
+        model=settings.ai_model,
         timeout_seconds=settings.ai_timeout_seconds,
     )
+
+
+def build_compare_service(settings: Settings) -> CompareQuotes:
+    """Wire the selected provider to deterministic application services."""
+
     return CompareQuotes(
-        extractor=extractor,
+        extractor=build_quote_extractor(settings),
         fee_engine=DecimalFeeEngine(),
         ranking_policy=RankingPolicy(),
     )

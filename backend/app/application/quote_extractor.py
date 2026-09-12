@@ -44,6 +44,16 @@ class QuoteExtractorInvalidResponseError(QuoteExtractorError):
     public_message = "AI extraction returned an invalid response. Please retry."
 
 
+class MisconfiguredQuoteExtractor:
+    """Fail comparison lazily so health remains available after bad configuration."""
+
+    def __init__(self, reason: str) -> None:
+        self._reason = reason
+
+    async def extract(self, quote: QuoteDocument) -> ExtractedQuote:
+        raise QuoteExtractorConfigurationError(self._reason)
+
+
 @runtime_checkable
 class QuoteExtractor(Protocol):
     """Implemented by one real provider adapter at the application edge."""

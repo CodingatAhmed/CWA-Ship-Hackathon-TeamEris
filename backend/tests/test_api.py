@@ -1,6 +1,8 @@
+import pytest
 from fastapi.testclient import TestClient
 
 from app.application.compare_quotes import CompareQuotes
+from app.application.quote_extractor import QuoteExtractorProviderError
 from app.config import Settings
 from app.domain.fees import DecimalFeeEngine
 from app.domain.ranking import RankingPolicy
@@ -40,8 +42,9 @@ def client_with_fake() -> TestClient:
     return TestClient(create_app(compare_service=service))
 
 
-def test_health_remains_available_without_ai_configuration() -> None:
-    app = create_app(settings=Settings(ai_api_key=None))
+@pytest.mark.parametrize("provider", ["openai", "groq", "unsupported"])
+def test_health_remains_available_without_ai_configuration(provider: str) -> None:
+    app = create_app(settings=Settings(ai_provider=provider, ai_api_key=None))
     response = TestClient(app).get("/health")
 
     assert response.status_code == 200
@@ -86,8 +89,11 @@ def test_invoice_amount_must_cross_json_as_a_decimal_string() -> None:
     assert client_with_fake().post("/api/compare", json=body).status_code == 422
 
 
-def test_unconfigured_real_extractor_returns_safe_retryable_503() -> None:
-    app = create_app(settings=Settings(ai_provider="openai", ai_api_key=None))
+@pytest.mark.parametrize("provider", ["openai", "groq", "unsupported"])
+def test_unconfigured_real_extractor_returns_safe_retryable_503(
+    provider: str,
+) -> None:
+    app = create_app(settings=Settings(ai_provider=provider, ai_api_key=None))
     response = TestClient(app).post("/api/compare", json=request_body())
 
     assert response.status_code == 503
@@ -95,6 +101,24 @@ def test_unconfigured_real_extractor_returns_safe_retryable_503() -> None:
     assert payload["retryable"] is True
     assert "test-key" not in str(payload)
     assert QUOTE_A not in str(payload)
+
+
+def test_provider_failure_maps_to_visible_retryable_503() -> None:
+    class RateLimitedService:
+        async def execute(self, command):
+            raise QuoteExtractorProviderError("provider returned 429")
+
+    response = TestClient(create_app(compare_service=RateLimitedService())).post(
+        "/api/compare",
+        json=request_body(),
+    )
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": "The AI provider is temporarily unavailable. Please retry.",
+        "retryable": True,
+    }
+    assert QUOTE_A not in response.text
 
 
 def test_unexpected_failure_returns_generic_safe_500() -> None:

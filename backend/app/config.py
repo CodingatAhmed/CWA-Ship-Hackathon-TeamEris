@@ -10,7 +10,7 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
 
 class Settings(BaseSettings):
-    """Runtime settings for HTTP composition and one OpenAI adapter."""
+    """Runtime settings for exactly one selected AI adapter."""
 
     model_config = SettingsConfigDict(
         env_file=BACKEND_ROOT / ".env",
