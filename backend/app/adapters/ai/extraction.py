@@ -58,6 +58,14 @@ Field rules that are rejected when broken:
   On eligibility_condition it must be exactly one of eligible, conditional,
   ineligible, unknown, the quoted availability wording belongs in condition, and
   value must be null.
+- condition, when set, is checked as a substring of that same term's evidence.
+  Copy it character for character from inside one of the excerpts you attached.
+  Do not paraphrase it, re-order it, or add or drop punctuation.
+- the numeric value of a fee or rate must also appear in that term's evidence,
+  so attach the excerpt that actually contains the number.
+- payer follows the quote's own wording: "you", "your payout" and "the
+  recipient" all mean freelancer. Use unknown only when the quote never says
+  who bears the charge.
 
 Put contradictions or interpretations outside the supported subset in
 unsupported_terms or mark the candidate contradictory/unsupported. Mark required
