@@ -1,6 +1,7 @@
 """Provider-shared construction and validation for Responses API extraction."""
 
 import json
+import logging
 import re
 from typing import Any
 
@@ -15,6 +16,8 @@ from app.domain.payment_terms import (
     PaymentTerm,
     QuoteDocument,
 )
+
+logger = logging.getLogger(__name__)
 
 EXTRACTION_INSTRUCTIONS = """
 You extract payment-route terms from one user-provided quote for PayoutPath PK.
@@ -108,11 +111,22 @@ def parse_extraction_response(
     try:
         payload = ExtractionPayload.model_validate_json(output_text)
     except ValidationError as exc:
+        # Log only field paths and error types. Values are omitted because the
+        # rejected payload can contain the user's quote text.
+        logger.error(
+            "%s structured output failed schema validation: %s",
+            provider_name,
+            "; ".join(
+                f"{'.'.join(str(part) for part in error['loc'])}:{error['type']}"
+                for error in exc.errors()
+            ),
+        )
         raise QuoteExtractorInvalidResponseError(
             f"{provider_name} structured output failed schema validation"
         ) from exc
 
     if payload.quote_id != quote.quote_id:
+        logger.error("%s returned a mismatched quote identifier", provider_name)
         raise QuoteExtractorInvalidResponseError(
             f"{provider_name} output returned a mismatched quote identifier"
         )
@@ -144,6 +158,12 @@ def parse_extraction_response(
 
 def _extract_output_text(data: dict[str, Any], provider_name: str) -> str:
     if data.get("status") != "completed":
+        logger.error(
+            "%s response status=%s incomplete_details=%s",
+            provider_name,
+            data.get("status"),
+            data.get("incomplete_details"),
+        )
         raise QuoteExtractorInvalidResponseError(
             f"{provider_name} response did not complete"
         )
@@ -165,6 +185,11 @@ def _extract_output_text(data: dict[str, Any], provider_name: str) -> str:
                 and isinstance(part.get("text"), str)
             ):
                 return part["text"]
+    logger.error(
+        "%s response carried no output_text; output item types=%s",
+        provider_name,
+        [item.get("type") for item in output if isinstance(item, dict)],
+    )
     raise QuoteExtractorInvalidResponseError(
         f"{provider_name} response contained no structured output text"
     )
